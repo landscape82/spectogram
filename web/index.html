@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
+<body>
+  <h2>Interactive Spectogram</h2>
+  <div id="plot" style="width:100%;height:90vh;"></div>
+  <script>
+    fetch("../data/spectogram.json")
+      .then(response => response.json())
+      .then(data => {
+        Plotly.newPlot('plot', [{
+          z: data,
+          type: 'heatmap',
+          colorscale: 'Viridis'
+        }], {
+          title: 'spectogram',
+          xaxis: { title: 'Time' },
+          yaxis: { title: 'Frequency Bin' }
+        });
+      });
+  </script>
+</body>
+</html>
