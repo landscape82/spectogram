@@ -1,8 +1,8 @@
-# 🎵 Go Spectogram with Interactive Plotly Viewer
+# Go Spectogram with Interactive Plotly Viewer
 
-This project allows you to generate a detailed **Spectogram** from an audio file (compressed `MP3` or simple `WAV`), visualize it as a **color PNG**, and interact with it using an **HTML + Plotly heatmap**.
+This simple project allows you to generate a detailed **Spectogram** from an audio file (compressed `MP3` or simple `WAV`), visualize it as a **color PNG**, and interact with it using an **HTML + Plotly heatmap**.
 
----
+I've call this module `go-spectrogram-plotly`. Hope to improve it in near future.
 
 ## ✨ Features
 
@@ -13,28 +13,22 @@ This project allows you to generate a detailed **Spectogram** from an audio file
 - 📊 Interactive Plotly viewer with zoom and pan
 - 📁 Clean folder structure and command-line usability
 
----
-
 ## 🔧 Requirements
 
-- `Go` 1.20`
-- `Python` 3 (for local `HTML` server)
+- `Go` version `1.20` (build and tested with `1.23.4` on `darwin/amd64` architecture)
+- `Python3` (for local `HTML` server, build and tested with `3.9.21`)
 - `libmpg123` (for MP3 decoding, if needed)
-
----
 
 ## 📦 Installation
 
 Clone the repository or unzip the downloaded archive.
 
 ```bash
-cd go-spectogram-plotly
+cd spectogram
 go mod tidy
 ```
 
 This will fetch necessary Go modules (especially `beep`, `gonum`).
-
----
 
 ## 🚀 Usage
 
@@ -50,14 +44,12 @@ go run cmd/main.go -in audio.mp3 -out spectogram.png -json data/spectogram.json
 
 ✅ Example:
 ```bash
-go run cmd/main.go -in examples/drumloop.wav -out spectogram.png -json data/spectogram.json
+go run cmd/main.go -in examples/loop.wav -out spectogram.png -json data/spectogram.json
 ```
 
 This generates:
 - image `spectogram.png`
-- output for Plotly in `data/spectogram.json`
-
----
+- output for Plotly in `data/spectogram.json` folder
 
 ## 🌐 View Interactive Spectogram (HTML + Plotly)
 
@@ -79,8 +71,6 @@ http://localhost:8000/web
 
 You should now see an interactive, zoomable Plotly heatmap.
 
----
-
 ## 🧠 How It Works?
 
 The `Go` script:
@@ -95,8 +85,6 @@ The `Go` script:
 
 The `HTML` uses `Plotly.js` to render that `JSON` into an interactive spectogram.
 
----
-
 ## 📁 Folder Structure
 
 ```
@@ -107,8 +95,6 @@ README.md      - this file
 go.mod         - Go module info
 ```
 
----
-
 ## 💡 Tips & Improvments
 
 - MP3 support requires `libmpg123` (Linux: `sudo apt install libmpg123-dev`)
@@ -117,8 +103,6 @@ go.mod         - Go module info
 - In future will add support for selecting multiple `*.json` spectograms
 - Also add support for custom gradient style (with selecting pallete)
 - Will implement support for stereo spectogram analysis!
-
----
 
 ## 📄 License
 
