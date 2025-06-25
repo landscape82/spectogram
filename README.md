@@ -1,6 +1,6 @@
-# Go Spectogram with Interactive Plotly Viewer
+# Spectogram with Interactive Plotly Viewer
 
-This simple project allows you to generate a detailed **Spectogram** from an audio file (compressed `MP3` or simple `WAV`), visualize it as a **color PNG**, and interact with it using an **HTML + Plotly heatmap**.
+This project allows you to generate a detailed **Spectogram** using `Go` from an audio file (compressed `MP3` or simple `WAV`), visualize it as a **color PNG**, and interact with it using an **HTML + Plotly heatmap**.
 
 I've call this module `go-spectrogram-plotly`. Hope to improve it in near future.
 
