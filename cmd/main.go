@@ -89,8 +89,16 @@ func main() {
 	}
 
 	// Export JSON for Plotly
-	jsonData, _ := json.MarshalIndent(spectrogram, "", "  ")
-	os.WriteFile(*jsonOut, jsonData, 0644)
+	jsonData, err := json.MarshalIndent(spectrogram, "", "  ")
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(*jsonOut), 0755); err != nil {
+		log.Fatal(err)
+	}
+	if err := os.WriteFile(*jsonOut, jsonData, 0644); err != nil {
+		log.Fatal(err)
+	}
 
 	width := len(spectrogram)
 	height := windowSize / 2

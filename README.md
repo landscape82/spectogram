@@ -42,11 +42,6 @@ go run cmd/main.go -in audio.mp3 -out spectogram.png -json data/spectogram.json
 - `-out` – name of the `PNG` image to be generated
 - `-json` – path where the spectogram matrix will be exported as `JSON`
 
-✅ Example:
-```bash
-go run cmd/main.go -in examples/loop.wav -out spectogram.png -json data/spectogram.json
-```
-
 This generates:
 - image `spectogram.png`
 - output for Plotly in `data/spectogram.json` folder
