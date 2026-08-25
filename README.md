@@ -19,7 +19,6 @@ I've call this module `go-spectrogram-plotly`. Hope to improve it in near future
 
 - `Go` version `1.20+` (CI runs the test suite on Go `1.21`, `1.22`, and `1.23`, on Ubuntu and macOS)
 - `Python3` (for local `HTML` server, build and tested with `3.9.21`)
-- `libmpg123` (for MP3 decoding, if needed)
 
 ## 📦 Installation
 
@@ -37,21 +36,16 @@ This will fetch necessary Go modules (especially `beep`, `gonum`).
 Run the spectogram generator with:
 
 ```bash
-go run cmd/main.go -in audio.mp3 -out spectogram.png -json data/spectogram.json
+go run cmd/main.go -in audio.mp3 -out spectrogram.png -json data/spectrogram.json
 ```
 
 - `-in` – path to your `WAV` or `MP3` file
-- `-out` – name of the `PNG` image to be generated
-- `-json` – path where the spectogram matrix will be exported as `JSON`
-
-✅ Example:
-```bash
-go run cmd/main.go -in examples/loop.wav -out spectogram.png -json data/spectogram.json
-```
+- `-out` – name of the `PNG` image to be generated (default `spectrogram.png`)
+- `-json` – path where the spectogram matrix will be exported as `JSON` (default `data/spectrogram.json`)
 
 This generates:
-- image `spectogram.png`
-- output for Plotly in `data/spectogram.json` folder
+- image `spectrogram.png`
+- output for Plotly in `data/spectrogram.json`, whose parent directory is created automatically if it doesn't exist
 
 ## 🌐 View Interactive Spectogram (HTML + Plotly)
 
@@ -81,7 +75,7 @@ The `Go` script:
 - Applies Hann window
 - Computes dB scale magnitudes
 - Normalizes intensities
-- Renders heatmap with axes and Viridis-style gradient
+- Renders heatmap with tick marks and Viridis-style gradient (tick positions are by index, not real seconds/Hz — sample rate isn't currently exported)
 - Exports as `PNG` and `JSON`
 - In this version you won't see Aphex Twin's face in "formula" track (mono analysis)
 
@@ -109,14 +103,13 @@ Unit and integration tests live alongside the code in `cmd/main_test.go`, coveri
 .github/workflows/ - CI pipeline (build, vet, test)
 cmd/                - main Go application and tests (main.go, main_test.go)
 web/                - HTML viewer with Plotly
-data/               - spectogram.json output goes here
+data/               - generated spectrogram.json output (created automatically, not tracked in git)
 README.md           - this file
 go.mod              - Go module info
 ```
 
 ## 💡 Tips & Improvments
 
-- MP3 support requires `libmpg123` (Linux: `sudo apt install libmpg123-dev`)
 - You can increase resolution by changing `windowSize` and `step` in `main.go`
 - Edit the Plotly colorscale or layout in `web/index.html` as you like
 - In future will add support for selecting multiple `*.json` spectograms
