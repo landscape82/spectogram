@@ -1,5 +1,7 @@
 # Spectogram with Interactive Plotly Viewer
 
+[![CI](https://github.com/landscape82/spectogram/actions/workflows/ci.yml/badge.svg)](https://github.com/landscape82/spectogram/actions/workflows/ci.yml)
+
 This project allows you to generate a detailed **Spectogram** using `Go` from an audio file (compressed `MP3` or simple `WAV`), visualize it as a **color PNG**, and interact with it using an **HTML + Plotly heatmap**.
 
 I've call this module `go-spectrogram-plotly`. Hope to improve it in near future.
@@ -15,7 +17,7 @@ I've call this module `go-spectrogram-plotly`. Hope to improve it in near future
 
 ## 🔧 Requirements
 
-- `Go` version `1.20` (build and tested with `1.23.4` on `darwin/amd64` architecture)
+- `Go` version `1.20+` (CI runs the test suite on Go `1.21`, `1.22`, and `1.23`, on Ubuntu and macOS)
 - `Python3` (for local `HTML` server, build and tested with `3.9.21`)
 
 ## 📦 Installation
@@ -79,14 +81,31 @@ The `Go` script:
 
 The `HTML` uses `Plotly.js` to render that `JSON` into an interactive spectogram.
 
+## 🧪 Development & Testing
+
+Continuous integration runs on every push and pull request to `main` via [GitHub Actions](.github/workflows/ci.yml). It builds the project, checks formatting, runs `go vet`, verifies `go.mod`/`go.sum` are tidy, and runs the test suite (with the race detector and coverage) across a matrix of Go versions and operating systems.
+
+To run the same checks locally before pushing:
+
+```bash
+go build ./cmd/...
+go vet ./...
+gofmt -l .
+go mod tidy && git diff --exit-code go.mod go.sum
+go test ./... -race -cover
+```
+
+Unit and integration tests live alongside the code in `cmd/main_test.go`, covering the FFT/Hann-window math, image and JSON output, and a full end-to-end run against a synthesized WAV file.
+
 ## 📁 Folder Structure
 
 ```
-cmd/           - main Go application
-web/           - HTML viewer with Plotly
-data/          - generated spectrogram.json output (created automatically, not tracked in git)
-README.md      - this file
-go.mod         - Go module info
+.github/workflows/ - CI pipeline (build, vet, test)
+cmd/                - main Go application and tests (main.go, main_test.go)
+web/                - HTML viewer with Plotly
+data/               - generated spectrogram.json output (created automatically, not tracked in git)
+README.md           - this file
+go.mod              - Go module info
 ```
 
 ## 💡 Tips & Improvments

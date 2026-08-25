@@ -19,6 +19,11 @@ import (
 	"gonum.org/v1/gonum/dsp/fourier"
 )
 
+const (
+	windowSize = 1024
+	step       = 512
+)
+
 func main() {
 	input := flag.String("in", "", "Input audio file (WAV or MP3)")
 	output := flag.String("out", "spectrogram.png", "Output PNG file")
@@ -29,28 +34,54 @@ func main() {
 		log.Fatal("Please specify input file using -in flag")
 	}
 
-	f, err := os.Open(*input)
-	if err != nil {
+	if err := run(*input, *output, *jsonOut); err != nil {
 		log.Fatal(err)
+	}
+}
+
+// run performs the full pipeline: decode input, compute the spectrogram,
+// and write the JSON and PNG outputs.
+func run(input, output, jsonOut string) error {
+	f, err := os.Open(input)
+	if err != nil {
+		return err
 	}
 	defer f.Close()
 
 	var streamer beep.StreamSeekCloser
 
-	switch ext := filepath.Ext(*input); ext {
+	switch ext := filepath.Ext(input); ext {
 	case ".mp3":
 		streamer, _, err = mp3.Decode(f)
 	case ".wav":
 		streamer, _, err = wav.Decode(f)
 	default:
-		log.Fatalf("Unsupported file format: %s", ext)
+		return fmt.Errorf("unsupported file format: %s", ext)
 	}
 
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer streamer.Close()
 
+	samples := decodeToMonoSamples(streamer)
+	spectrogram, maxVal := computeSpectrogram(samples, windowSize, step)
+
+	if err := writeJSON(jsonOut, spectrogram); err != nil {
+		return err
+	}
+
+	if err := writeImage(output, spectrogram, windowSize, maxVal); err != nil {
+		return err
+	}
+
+	fmt.Println("Spectrogram saved to", output)
+	fmt.Println("JSON data saved to", jsonOut)
+	return nil
+}
+
+// decodeToMonoSamples reads all samples from streamer, downmixing stereo to mono.
+func decodeToMonoSamples(streamer beep.Streamer) []float64 {
 	samples := make([]float64, 0)
 	buf := make([][2]float64, 1024)
 
@@ -65,15 +96,20 @@ func main() {
 		}
 	}
 
-	windowSize := 1024
-	step := 512
+	return samples
+}
+
+// computeSpectrogram splits samples into overlapping windows, applies a Hann
+// window, and computes the dB-scale FFT magnitude for each window. It also
+// returns the maximum magnitude value found across the whole spectrogram.
+func computeSpectrogram(samples []float64, windowSize, step int) ([][]float64, float64) {
 	fft := fourier.NewFFT(windowSize)
 
 	var spectrogram [][]float64
 	maxVal := -math.MaxFloat64
 
 	for i := 0; i+windowSize < len(samples); i += step {
-		window := applyHannWindow(samples[i : i+windowSize])
+		window := applyHannWindow(append([]float64(nil), samples[i:i+windowSize]...))
 		spectrum := fft.Coefficients(nil, window)
 		magnitude := make([]float64, windowSize/2)
 		for j := 0; j < len(magnitude); j++ {
@@ -88,18 +124,29 @@ func main() {
 		spectrogram = append(spectrogram, magnitude)
 	}
 
-	// Export JSON for Plotly
+	return spectrogram, maxVal
+}
+
+// writeJSON marshals the spectrogram and writes it to path, creating any
+// missing parent directories.
+func writeJSON(path string, spectrogram [][]float64) error {
 	jsonData, err := json.MarshalIndent(spectrogram, "", "  ")
 	if err != nil {
-		log.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Dir(*jsonOut), 0755); err != nil {
-		log.Fatal(err)
-	}
-	if err := os.WriteFile(*jsonOut, jsonData, 0644); err != nil {
-		log.Fatal(err)
+		return err
 	}
 
+	if dir := filepath.Dir(path); dir != "" {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return err
+		}
+	}
+
+	return os.WriteFile(path, jsonData, 0644)
+}
+
+// writeImage renders the spectrogram as a Viridis-style heatmap PNG with
+// simple axis tick marks, and writes it to path.
+func writeImage(path string, spectrogram [][]float64, windowSize int, maxVal float64) error {
 	width := len(spectrogram)
 	height := windowSize / 2
 	img := image.NewRGBA(image.Rect(0, 0, width+60, height+40))
@@ -128,15 +175,13 @@ func main() {
 		}
 	}
 
-	outFile, err := os.Create(*output)
+	outFile, err := os.Create(path)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer outFile.Close()
 
-	png.Encode(outFile, img)
-	fmt.Println("Spectrogram saved to", *output)
-	fmt.Println("JSON data saved to", *jsonOut)
+	return png.Encode(outFile, img)
 }
 
 func applyHannWindow(samples []float64) []float64 {
