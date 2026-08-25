@@ -4,6 +4,8 @@
 
 This project allows you to generate a detailed **Spectogram** using `Go` from an audio file (compressed `MP3` or simple `WAV`), visualize it as a **color PNG**, and interact with it using an **HTML + Plotly heatmap**.
 
+> ⚠️ **Project status:** this is still under active development and is **not a single interactive app**. There's no server or UI tying the pieces together — using it is a manual, two-step workflow: (1) run the Go CLI to generate the spectrogram data, then (2) run a local web server to view it in the browser. See [Usage](#-usage) below for the exact steps. A more user-friendly, integrated workflow is tracked as a future improvement.
+
 I've call this module `go-spectrogram-plotly`. Hope to improve it in near future.
 
 ## ✨ Features
@@ -33,6 +35,10 @@ This will fetch necessary Go modules (especially `beep`, `gonum`).
 
 ## 🚀 Usage
 
+The workflow is two separate, manual steps: first generate the data with the Go CLI (Step 1 below), then serve and view it with a local Python web server (Step 2, in the next section). There is currently no single command or app that does both.
+
+### Step 1. Generate the spectrogram data
+
 Run the spectogram generator with:
 
 ```bash
@@ -47,17 +53,17 @@ This generates:
 - image `spectrogram.png`
 - output for Plotly in `data/spectrogram.json`, whose parent directory is created automatically if it doesn't exist
 
-## 🌐 View Interactive Spectogram (HTML + Plotly)
+## 🌐 Step 2. View the Spectogram (HTML + Plotly)
 
-To view your Spectogram interactively:
+To view the spectrogram you generated in Step 1:
 
-### Step 1. Run local server
+### Run local server
 
 ```bash
 python3 -m http.server
 ```
 
-### Step 2. Open your browser:
+### Open your browser
 
 ```
 http://localhost:8000/web/index.html
