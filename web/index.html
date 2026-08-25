@@ -8,7 +8,7 @@
   <h2>Interactive Spectogram</h2>
   <div id="plot" style="width:100%;height:90vh;"></div>
   <script>
-    fetch("../data/spectogram.json")
+    fetch("../data/spectrogram.json")
       .then(response => response.json())
       .then(data => {
         Plotly.newPlot('plot', [{
