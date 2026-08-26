@@ -60,13 +60,25 @@ jobs:
         run: go test ./... -v -race -covermode=atomic -coverprofile=coverage.out
 
       - name: Show coverage summary
-        run: go tool cover -func=coverage.out
+        run: |
+          go tool cover -func=coverage.out | tee coverage-summary.txt
+          {
+            echo "### Coverage summary"
+            echo '```'
+            cat coverage-summary.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Generate HTML coverage report
+        run: go tool cover -html=coverage.out -o coverage.html
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v6
         with:
           name: coverage-report
-          path: coverage.out
+          path: |
+            coverage.out
+            coverage.html
 
   matrix-test:
     name: Test (Go ${{ matrix.go-version }}, ${{ matrix.os }})
