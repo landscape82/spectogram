@@ -73,6 +73,32 @@ http://localhost:8000/web
 
 You should now see an interactive, zoomable Plotly heatmap.
 
+## 🐳 Running with Docker
+
+A `Dockerfile` is included so you can run both steps without installing Go or Python locally. Build the image once:
+
+```bash
+docker build -t spectogram .
+```
+
+### Step 1. Generate the spectrogram data
+
+Mount a local directory containing your audio file to `/app/data`, and generate the output into it:
+
+```bash
+docker run --rm -v "$(pwd)":/app/data spectogram generate -in /app/data/audio.mp3 -out /app/data/spectrogram.png -json /app/data/spectrogram.json
+```
+
+### Step 2. View the Spectrogram
+
+Using the same mount, so the web viewer can find `spectrogram.json`:
+
+```bash
+docker run --rm -p 8000:8000 -v "$(pwd)":/app/data spectogram serve
+```
+
+Then open `http://localhost:8000/web` in your browser, same as the local workflow above.
+
 ## 🧠 How It Works?
 
 The `Go` script:
@@ -106,10 +132,12 @@ Unit and integration tests live alongside the code in `cmd/spectogram/main_test.
 ## 📁 Folder Structure
 
 ```
-.github/workflows/ - CI pipeline (build, vet, test)
+.github/workflows/  - CI pipeline (build, vet, test, Docker image build)
 cmd/spectogram/     - main Go application and tests (main.go, main_test.go)
 web/                - HTML viewer with Plotly
 data/               - generated spectrogram.json output (created automatically, not tracked in git)
+Dockerfile          - containerized build (Go binary + Python static file server)
+docker-entrypoint.sh - dispatches `generate` and `serve` container commands
 README.md           - this file
 go.mod              - Go module info
 ```

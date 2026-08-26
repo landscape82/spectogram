@@ -1,0 +1,8 @@
+.git
+.github
+data
+*.png
+coverage.*
+*.out
+spectogram
+spectrogram
