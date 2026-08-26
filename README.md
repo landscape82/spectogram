@@ -1,18 +1,18 @@
-# Spectogram with Interactive Plotly Viewer
+# Spectrogram with Interactive Plotly Viewer
 
 [![CI](https://github.com/landscape82/spectogram/actions/workflows/ci.yml/badge.svg)](https://github.com/landscape82/spectogram/actions/workflows/ci.yml)
 
-This project allows you to generate a detailed **Spectogram** using `Go` from an audio file (compressed `MP3` or simple `WAV`), visualize it as a **color PNG**, and interact with it using an **HTML + Plotly heatmap**.
+This project allows you to generate a detailed **Spectrogram** using `Go` from an audio file (compressed `MP3` or simple `WAV`), visualize it as a **color PNG**, and interact with it using an **HTML + Plotly heatmap**.
 
 > ⚠️ **Project status:** this is still under active development and is **not a single interactive app**. There's no server or UI tying the pieces together — using it is a manual, two-step workflow: (1) run the Go CLI to generate the spectrogram data, then (2) run a local web server to view it in the browser. See [Usage](#-usage) below for the exact steps. A more user-friendly, integrated workflow is tracked as a future improvement.
 
-I've call this module `go-spectrogram-plotly`. Hope to improve it in near future.
+I've called this module `go-spectrogram-plotly`. Hope to improve it in the near future.
 
 ## ✨ Features
 
 - 🎧 Supports `MP3` and `WAV` audio files
 - 🔊 Uses `FFT` + `Hann` window for accurate frequency representation
-- 🎨 Generates color spectograms using a `Viridis-style` heatmap
+- 🎨 Generates color spectrograms using a `Viridis-style` heatmap
 - 🖼️ Saves as static `PNG` and `JSON` frequency matrix
 - 📊 Interactive Plotly viewer with zoom and pan
 - 📁 Clean folder structure and command-line usability
@@ -39,21 +39,21 @@ The workflow is two separate, manual steps: first generate the data with the Go 
 
 ### Step 1. Generate the spectrogram data
 
-Run the spectogram generator with:
+Run the spectrogram generator with:
 
 ```bash
-go run cmd/main.go -in audio.mp3 -out spectrogram.png -json data/spectrogram.json
+go run cmd/spectogram/main.go -in audio.mp3 -out spectrogram.png -json data/spectrogram.json
 ```
 
 - `-in` – path to your `WAV` or `MP3` file
 - `-out` – name of the `PNG` image to be generated (default `spectrogram.png`)
-- `-json` – path where the spectogram matrix will be exported as `JSON` (default `data/spectrogram.json`)
+- `-json` – path where the spectrogram matrix will be exported as `JSON` (default `data/spectrogram.json`)
 
 This generates:
 - image `spectrogram.png`
 - output for Plotly in `data/spectrogram.json`, whose parent directory is created automatically if it doesn't exist
 
-## 🌐 Step 2. View the Spectogram (HTML + Plotly)
+## 🌐 Step 2. View the Spectrogram (HTML + Plotly)
 
 To view the spectrogram you generated in Step 1:
 
@@ -76,7 +76,7 @@ You should now see an interactive, zoomable Plotly heatmap.
 ## 🧠 How It Works?
 
 The `Go` script:
-- Loads the audio and converts to mono (unfortunetly)
+- Loads the audio and converts to mono (unfortunately)
 - Splits into FFT windows (1024 samples, 50% overlap)
 - Applies Hann window
 - Computes dB scale magnitudes
@@ -85,7 +85,7 @@ The `Go` script:
 - Exports as `PNG` and `JSON`
 - In this version you won't see Aphex Twin's face in "formula" track (mono analysis)
 
-The `HTML` uses `Plotly.js` to render that `JSON` into an interactive spectogram.
+The `HTML` uses `Plotly.js` to render that `JSON` into an interactive spectrogram.
 
 ## 🧪 Development & Testing
 
@@ -101,26 +101,26 @@ go mod tidy && git diff --exit-code go.mod go.sum
 go test ./... -race -cover
 ```
 
-Unit and integration tests live alongside the code in `cmd/main_test.go`, covering the FFT/Hann-window math, image and JSON output, and a full end-to-end run against a synthesized WAV file.
+Unit and integration tests live alongside the code in `cmd/spectogram/main_test.go`, covering the FFT/Hann-window math, image and JSON output, and a full end-to-end run against a synthesized WAV file.
 
 ## 📁 Folder Structure
 
 ```
 .github/workflows/ - CI pipeline (build, vet, test)
-cmd/                - main Go application and tests (main.go, main_test.go)
+cmd/spectogram/     - main Go application and tests (main.go, main_test.go)
 web/                - HTML viewer with Plotly
 data/               - generated spectrogram.json output (created automatically, not tracked in git)
 README.md           - this file
 go.mod              - Go module info
 ```
 
-## 💡 Tips & Improvments
+## 💡 Tips & Improvements
 
 - You can increase resolution by changing `windowSize` and `step` in `main.go`
 - Edit the Plotly colorscale or layout in `web/index.html` as you like
-- In future will add support for selecting multiple `*.json` spectograms
-- Also add support for custom gradient style (with selecting pallete)
-- Will implement support for stereo spectogram analysis!
+- In future will add support for selecting multiple `*.json` spectrograms
+- Also add support for custom gradient style (with selecting palette)
+- Will implement support for stereo spectrogram analysis!
 
 ## 📄 License
 
