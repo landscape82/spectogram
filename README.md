@@ -99,6 +99,10 @@ docker run --rm -p 8000:8000 -v "$(pwd)":/app/data spectogram serve
 
 Then open `http://localhost:8000/web` in your browser, same as the local workflow above.
 
+## ☸️ Running on Kubernetes
+
+A Helm chart at [`charts/spectogram`](charts/spectogram) deploys the containerized viewer to any Kubernetes cluster — a local `kind` cluster, a managed cloud cluster, or on-prem — using the same image built by the `Dockerfile` above. See [`charts/spectogram/README.md`](charts/spectogram/README.md) for the full quickstart (kind), generating data via an in-cluster Job, and cloud/on-prem deployment options (registry, ingress, storage class, scaling).
+
 ## 🧠 How It Works?
 
 The `Go` script:
@@ -132,12 +136,13 @@ Unit and integration tests live alongside the code in `cmd/spectogram/main_test.
 ## 📁 Folder Structure
 
 ```
-.github/workflows/  - CI pipeline (build, vet, test, Docker image build)
+.github/workflows/  - CI pipeline (build, vet, test, Docker image build, Helm chart lint/kind test)
 cmd/spectogram/     - main Go application and tests (main.go, main_test.go)
 web/                - HTML viewer with Plotly
 data/               - generated spectrogram.json output (created automatically, not tracked in git)
 Dockerfile          - containerized build (Go binary + Python static file server)
 docker-entrypoint.sh - dispatches `generate` and `serve` container commands
+charts/spectogram/  - Helm chart for deploying to kind / cloud / on-prem Kubernetes
 README.md           - this file
 go.mod              - Go module info
 ```
