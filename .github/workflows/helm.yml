@@ -1,0 +1,88 @@
+name: Helm Chart
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "charts/**"
+      - "Dockerfile"
+      - "docker-entrypoint.sh"
+      - "cmd/**"
+      - "web/**"
+      - ".github/workflows/helm.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "charts/**"
+      - "Dockerfile"
+      - "docker-entrypoint.sh"
+      - "cmd/**"
+      - "web/**"
+      - ".github/workflows/helm.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-template:
+    name: Lint & Template
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: "v3.18.4"
+
+      - name: helm lint
+        run: helm lint charts/spectogram
+
+      - name: helm template (default values)
+        run: helm template test charts/spectogram
+
+      - name: helm template (all features enabled)
+        run: |
+          helm template test charts/spectogram \
+            --set ingress.enabled=true \
+            --set autoscaling.enabled=true \
+            --set generateJob.enabled=true \
+            --set generateJob.audioConfigMap=my-audio
+
+  kind-install:
+    name: Deploy to kind
+    runs-on: ubuntu-latest
+    needs: lint-and-template
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: "v3.18.4"
+
+      - name: Build image
+        run: docker build -t spectogram:ci .
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: spectogram-ci
+
+      - name: Load image into kind
+        run: kind load docker-image spectogram:ci --name spectogram-ci
+
+      - name: helm install
+        run: |
+          helm install spectogram charts/spectogram \
+            --set image.repository=spectogram \
+            --set image.tag=ci \
+            --wait --timeout 2m
+
+      - name: helm test
+        run: helm test spectogram --timeout 1m
+
+      - name: Describe resources on failure
+        if: failure()
+        run: |
+          kubectl get all
+          kubectl describe pod -l app.kubernetes.io/instance=spectogram
+          kubectl logs -l app.kubernetes.io/instance=spectogram --all-containers --tail=200 || true
