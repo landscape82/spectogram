@@ -98,3 +98,12 @@ jobs:
 
       - name: Run tests
         run: go test ./... -v
+
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build image
+        run: docker build -t spectogram:ci .
