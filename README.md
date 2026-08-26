@@ -129,6 +129,10 @@ go test ./... -race -cover
 
 Unit and integration tests live alongside the code in `cmd/spectogram/main_test.go`, covering the FFT/Hann-window math, image and JSON output, and a full end-to-end run against a synthesized WAV file.
 
+### Releases
+
+Pushing a tag matching `vX.Y.Z` triggers [`.github/workflows/release.yml`](.github/workflows/release.yml), which builds binaries for Linux/macOS (amd64/arm64), generates release notes from the commit log since the previous tag, and publishes a GitHub Release. See [CHANGELOG.md](CHANGELOG.md).
+
 ## 📁 Folder Structure
 
 ```
