@@ -1,10 +1,10 @@
 module go-spectrogram-plotly
 
-go 1.20
+go 1.24.0
 
 require (
 	github.com/faiface/beep v1.1.0
-	gonum.org/v1/gonum v0.14.0
+	gonum.org/v1/gonum v0.17.0
 )
 
 require (
