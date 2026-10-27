@@ -17,7 +17,9 @@ spec:
         - "-c"
         - |
           set -e
-          url="http://{{ include "spectogram.fullname" . }}:{{ .Values.service.port }}/web/index.html"
+          # Request the directory rather than index.html: Go's file server
+          # redirects the latter to ./, which BusyBox wget cannot follow.
+          url="http://{{ include "spectogram.fullname" . }}:{{ .Values.service.port }}/web/"
           for i in $(seq 1 10); do
             if wget -q -T 5 -O- "$url" | grep -qi plotly; then
               echo "OK: web viewer served plotly page"
