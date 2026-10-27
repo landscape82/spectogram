@@ -1,28 +1,86 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spectrogram Viewer</title>
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"
     integrity="sha384-cCVCZkAjYNxaYKbM8lsArLznDF/SvMFr1jcZrvOpSTCa0W40ZAdLzHCEulnUa5i7"
     crossorigin="anonymous"></script>
+  <style>
+    body { margin: 0; color: #202124; font: 15px system-ui, sans-serif; }
+    header { display: flex; gap: .75rem; align-items: center; padding: 1rem; border-bottom: 1px solid #ddd; }
+    input { flex: 1; padding: .5rem; } button { padding: .5rem .8rem; cursor: pointer; }
+    #status { padding: .5rem 1rem; } #status.error { color: #b3261e; }
+    #metadata { padding: 0 1rem .5rem; color: #555; } #plot { height: calc(100vh - 130px); min-height: 400px; }
+  </style>
 </head>
 <body>
-  <h2>Interactive Spectogram</h2>
-  <div id="plot" style="width:100%;height:90vh;"></div>
+  <header>
+    <label for="source">Spectrogram JSON</label>
+    <input id="source" list="spectrograms" value="../data/spectrogram.json" aria-label="Spectrogram JSON URL">
+    <datalist id="spectrograms"></datalist>
+    <button id="load">Load</button>
+  </header>
+  <div id="status" role="status">Loading…</div>
+  <div id="metadata"></div>
+  <div id="plot"></div>
   <script>
-    fetch("../data/spectrogram.json")
-      .then(response => response.json())
-      .then(data => {
-        Plotly.newPlot('plot', [{
-          z: data,
-          type: 'heatmap',
-          colorscale: 'Viridis'
-        }], {
-          title: 'spectogram',
-          xaxis: { title: 'Time' },
-          yaxis: { title: 'Frequency Bin' }
+    const source = document.getElementById('source');
+    const status = document.getElementById('status');
+    const metadata = document.getElementById('metadata');
+
+    fetch('../api/spectrograms').then(response => response.ok ? response.json() : [])
+      .then(files => {
+        const list = document.getElementById('spectrograms');
+        files.forEach(file => {
+          const option = document.createElement('option');
+          option.value = `..${file}`;
+          list.appendChild(option);
         });
-      });
+      }).catch(() => {}); // The viewer also works with a generic static server.
+
+    function transpose(data) {
+      return data[0].map((_, frequencyBin) => data.map(frame => frame[frequencyBin]));
+    }
+
+    async function load() {
+      const url = source.value.trim();
+      status.className = '';
+      status.textContent = `Loading ${url}…`;
+      metadata.textContent = '';
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const document = await response.json();
+        if (!document.metadata || !Array.isArray(document.data) || !document.data.length) {
+          throw new Error('Expected a versioned spectrogram document with metadata and non-empty data.');
+        }
+        const m = document.metadata;
+        const x = document.data.map((_, frame) => frame * m.timeStepSeconds);
+        const y = document.data[0].map((_, bin) => bin * m.frequencyStepHz);
+        await Plotly.react('plot', [{
+          z: transpose(document.data), x, y, type: 'heatmap', colorscale: 'Viridis',
+          zmin: m.minDb, zmax: m.maxDb,
+          colorbar: { title: 'dBFS' }, hovertemplate: 'Time %{x:.3f} s<br>Frequency %{y:.1f} Hz<br>%{z:.1f} dBFS<extra></extra>'
+        }], {
+          title: 'Spectrogram', margin: { l: 70, r: 30, t: 55, b: 60 },
+          xaxis: { title: 'Time (seconds)' }, yaxis: { title: 'Frequency (Hz)' }
+        }, { responsive: true });
+        metadata.textContent = `${m.sampleRate} Hz · ${m.channels} channel source · ${m.channel} analysis · FFT ${m.fftSize} · hop ${m.hopSize} · ${m.durationSeconds.toFixed(2)} s`;
+        status.textContent = `Loaded ${document.data.length} time frames × ${document.data[0].length} frequency bins.`;
+      } catch (error) {
+        Plotly.purge('plot');
+        status.className = 'error';
+        status.textContent = `Could not load spectrogram: ${error.message}`;
+      }
+    }
+
+    document.getElementById('load').addEventListener('click', load);
+    source.addEventListener('keydown', event => { if (event.key === 'Enter') load(); });
+    const requested = new URLSearchParams(window.location.search).get('file');
+    if (requested) source.value = requested;
+    load();
   </script>
 </body>
 </html>
