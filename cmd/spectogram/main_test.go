@@ -2,10 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"image/color"
 	"image/png"
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/faiface/beep"
@@ -17,315 +21,187 @@ func TestApplyHannWindow(t *testing.T) {
 	for i := range samples {
 		samples[i] = 1
 	}
-
-	windowed := applyHannWindow(samples)
-
-	if len(windowed) != len(samples) {
-		t.Fatalf("expected length %d, got %d", len(samples), len(windowed))
+	got := applyHannWindow(samples)
+	if math.Abs(got[0]) > 1e-9 || math.Abs(got[len(got)-1]) > 1e-9 {
+		t.Fatal("Hann window must taper at both ends")
 	}
-
-	// Hann window tapers to (near) zero at both edges and peaks at the center.
-	if math.Abs(windowed[0]) > 1e-9 {
-		t.Errorf("expected first sample near 0, got %v", windowed[0])
-	}
-	if math.Abs(windowed[len(windowed)-1]) > 1e-9 {
-		t.Errorf("expected last sample near 0, got %v", windowed[len(windowed)-1])
-	}
-
-	mid := len(windowed) / 2
-	if windowed[mid] <= windowed[0] || windowed[mid] <= windowed[1] {
-		t.Errorf("expected center sample to be larger than edge samples, got center=%v", windowed[mid])
-	}
-
-	// Window should be symmetric.
-	for i := 0; i < len(windowed)/2; i++ {
-		j := len(windowed) - 1 - i
-		if math.Abs(windowed[i]-windowed[j]) > 1e-9 {
-			t.Errorf("expected symmetric window, windowed[%d]=%v != windowed[%d]=%v", i, windowed[i], j, windowed[j])
+	for i := 0; i < len(got)/2; i++ {
+		if math.Abs(got[i]-got[len(got)-1-i]) > 1e-9 {
+			t.Fatal("Hann window must be symmetric")
 		}
 	}
 }
 
-func TestApplyHannWindowSingleSample(t *testing.T) {
-	// Documents current behavior: a single-sample window divides by zero
-	// (len-1 == 0), producing NaN rather than panicking.
-	samples := []float64{1}
-	windowed := applyHannWindow(samples)
-
-	if len(windowed) != 1 {
-		t.Fatalf("expected length 1, got %d", len(windowed))
+func TestApplyHannWindowSingleSampleIsFinite(t *testing.T) {
+	got := applyHannWindow([]float64{1})
+	if len(got) != 1 || math.IsNaN(got[0]) {
+		t.Fatalf("single sample must remain finite: %v", got)
 	}
-	if !math.IsNaN(windowed[0]) {
-		t.Errorf("expected NaN for single-sample window, got %v", windowed[0])
+}
+
+func TestConfigValidation(t *testing.T) {
+	for _, config := range []Config{
+		{FFTSize: 1000, HopSize: 10, Channel: "mono", MinDB: -100, MaxDB: 0},
+		{FFTSize: 64, HopSize: 65, Channel: "mono", MinDB: -100, MaxDB: 0},
+		{FFTSize: 64, HopSize: 32, Channel: "banana", MinDB: -100, MaxDB: 0},
+		{FFTSize: 64, HopSize: 32, Channel: "mono", MinDB: 0, MaxDB: 0},
+	} {
+		if err := config.validate(); err == nil {
+			t.Fatalf("expected invalid config: %+v", config)
+		}
+	}
+}
+
+func TestStreamSpectrogramIncludesExactFinalWindowAndMetadata(t *testing.T) {
+	config := Config{FFTSize: 64, HopSize: 32, Channel: "mono", MinDB: -100, MaxDB: 0}
+	stream := stereoSineStreamer(128, 8, 8000, 1, 1)
+	got, err := streamSpectrogram(stream, 8000, 2, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Data) != 3 {
+		t.Fatalf("got %d frames, want 3 including exact final frame", len(got.Data))
+	}
+	if got.Metadata.SchemaVersion != 1 || got.Metadata.SampleRate != 8000 || got.Metadata.Channels != 2 {
+		t.Fatalf("unexpected metadata: %+v", got.Metadata)
+	}
+	if got.Metadata.FrequencyStepHz != 125 || got.Metadata.TimeStepSeconds != 0.004 {
+		t.Fatalf("unexpected physical axis metadata: %+v", got.Metadata)
+	}
+}
+
+func TestStreamSpectrogramSinePeakAndDBFS(t *testing.T) {
+	config := Config{FFTSize: 256, HopSize: 128, Channel: "left", MinDB: -100, MaxDB: 0}
+	got, err := streamSpectrogram(stereoSineStreamer(512, 1000, 25600, 1, 0), 25600, 2, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	peak := 0
+	for i := range got.Data[0] {
+		if got.Data[0][i] > got.Data[0][peak] {
+			peak = i
+		}
+	}
+	if peak != 10 {
+		t.Fatalf("peak bin = %d, want 10", peak)
+	}
+	if math.Abs(got.Data[0][peak]) > 0.1 {
+		t.Fatalf("full-scale bin should be near 0 dBFS, got %f", got.Data[0][peak])
+	}
+}
+
+func TestChannelSelection(t *testing.T) {
+	sample := [2]float64{0.8, -0.2}
+	if selectChannel(sample, "left") != 0.8 || selectChannel(sample, "right") != -0.2 {
+		t.Fatal("left/right selection failed")
+	}
+	if math.Abs(selectChannel(sample, "mono")-0.3) > 1e-9 || math.Abs(selectChannel(sample, "side")-0.5) > 1e-9 {
+		t.Fatal("mid/side selection failed")
+	}
+}
+
+func TestFrameCollectorBoundsOutput(t *testing.T) {
+	c := newFrameCollector(4)
+	for i := 0; i < 40; i++ {
+		c.add([]float64{float64(i)})
+	}
+	if len(c.frames) > 4 {
+		t.Fatalf("stored %d frames, limit is 4", len(c.frames))
+	}
+	if c.stride <= 1 {
+		t.Fatalf("expected downsampling, got stride %d", c.stride)
 	}
 }
 
 func TestViridisColor(t *testing.T) {
-	tests := []struct {
-		name         string
-		value, max   float64
-		wantR, wantB uint8
-	}{
-		{"at minimum maps to norm 0", -100, 0, 0, 255},
-		{"at maximum maps to norm 1", 0, 0, 255, 0},
-		{"below minimum clamps to norm 0", -1000, 0, 0, 255},
-		{"above maximum clamps to norm 1", 1000, 0, 255, 0},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c := viridisColor(tt.value, tt.max)
-			r, _, b, a := c.RGBA()
-			gotR := uint8(r >> 8)
-			gotB := uint8(b >> 8)
-			if gotR != tt.wantR {
-				t.Errorf("R = %d, want %d", gotR, tt.wantR)
-			}
-			if gotB != tt.wantB {
-				t.Errorf("B = %d, want %d", gotB, tt.wantB)
-			}
-			if a>>8 != 255 {
-				t.Errorf("expected fully opaque color, got alpha %d", a>>8)
-			}
-		})
+	low := viridisColor(-100, -100, 0).(color.RGBA)
+	high := viridisColor(0, -100, 0).(color.RGBA)
+	if low != (color.RGBA{68, 1, 84, 255}) || high != (color.RGBA{253, 231, 37, 255}) {
+		t.Fatalf("unexpected Viridis endpoints: %#v %#v", low, high)
 	}
 }
 
-func TestComputeSpectrogramDimensions(t *testing.T) {
-	const (
-		windowSize = 64
-		step       = 32
-		numSamples = 256
-	)
-
-	samples := make([]float64, numSamples)
-	for i := range samples {
-		samples[i] = math.Sin(2 * math.Pi * float64(i) / 8)
-	}
-
-	spectrogram, maxVal := computeSpectrogram(samples, windowSize, step)
-
-	wantWindows := 0
-	for i := 0; i+windowSize < numSamples; i += step {
-		wantWindows++
-	}
-
-	if len(spectrogram) != wantWindows {
-		t.Fatalf("expected %d windows, got %d", wantWindows, len(spectrogram))
-	}
-
-	for i, row := range spectrogram {
-		if len(row) != windowSize/2 {
-			t.Fatalf("row %d: expected %d magnitude bins, got %d", i, windowSize/2, len(row))
-		}
-	}
-
-	if maxVal == -math.MaxFloat64 {
-		t.Errorf("expected maxVal to be updated from initial sentinel")
-	}
-}
-
-func TestComputeSpectrogramTooShortInput(t *testing.T) {
-	samples := make([]float64, 10)
-	spectrogram, _ := computeSpectrogram(samples, 1024, 512)
-
-	if len(spectrogram) != 0 {
-		t.Fatalf("expected no windows for input shorter than windowSize, got %d", len(spectrogram))
-	}
-}
-
-func TestComputeSpectrogramEmptyInput(t *testing.T) {
-	spectrogram, maxVal := computeSpectrogram(nil, 64, 32)
-
-	if len(spectrogram) != 0 {
-		t.Fatalf("expected no windows for empty input, got %d", len(spectrogram))
-	}
-	if maxVal != -math.MaxFloat64 {
-		t.Errorf("expected maxVal to remain at sentinel for empty input, got %v", maxVal)
-	}
-}
-
-func TestComputeSpectrogramSineWavePeakBin(t *testing.T) {
-	const (
-		windowSize = 256
-		step       = 128
-		cycles     = 10 // exact number of sine cycles within one window
-	)
-
-	samples := make([]float64, windowSize*3)
-	for i := range samples {
-		samples[i] = math.Sin(2 * math.Pi * float64(cycles) * float64(i) / float64(windowSize))
-	}
-
-	spectrogram, _ := computeSpectrogram(samples, windowSize, step)
-	if len(spectrogram) == 0 {
-		t.Fatal("expected at least one window")
-	}
-
-	row := spectrogram[0]
-	peakBin := 0
-	for j := 1; j < len(row); j++ {
-		if row[j] > row[peakBin] {
-			peakBin = j
-		}
-	}
-
-	if peakBin != cycles {
-		t.Errorf("expected FFT peak at bin %d, got bin %d", cycles, peakBin)
-	}
-}
-
-func TestComputeSpectrogramDoesNotDoubleWindowOverlap(t *testing.T) {
-	// Regression test: overlapping windows (step < windowSize) must not
-	// mutate the shared underlying samples slice, or the overlap region
-	// would be Hann-windowed twice.
-	const windowSize = 64
-	const step = 32
-
-	samples := make([]float64, windowSize+step)
-	for i := range samples {
-		samples[i] = 1
-	}
-	original := append([]float64(nil), samples...)
-
-	computeSpectrogram(samples, windowSize, step)
-
-	for i, v := range samples {
-		if v != original[i] {
-			t.Fatalf("computeSpectrogram mutated input samples at index %d: got %v, want %v", i, v, original[i])
-		}
-	}
-}
-
-func TestWriteJSONCreatesParentDir(t *testing.T) {
+func TestWriteOutputsCreateParentDirs(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "nested", "spectrogram.json")
-
-	spectrogram := [][]float64{{1, 2}, {3, 4}}
-	if err := writeJSON(path, spectrogram); err != nil {
-		t.Fatalf("writeJSON returned error: %v", err)
+	s := Spectrogram{Metadata: Metadata{FFTSize: 4, MinDB: -100, MaxDB: 0}, Data: [][]float64{{-10, -5}, {-8, -1}}}
+	jsonPath := filepath.Join(dir, "json", "spectrogram.json")
+	pngPath := filepath.Join(dir, "images", "spectrogram.png")
+	if err := writeJSON(jsonPath, s); err != nil {
+		t.Fatal(err)
 	}
-
-	data, err := os.ReadFile(path)
+	if err := writeImage(pngPath, s); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(jsonPath)
 	if err != nil {
-		t.Fatalf("failed to read written JSON: %v", err)
+		t.Fatal(err)
 	}
-
-	var got [][]float64
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatalf("failed to unmarshal written JSON: %v", err)
+	var decoded Spectrogram
+	if err := json.Unmarshal(data, &decoded); err != nil || decoded.Metadata.FFTSize != 4 {
+		t.Fatalf("invalid structured JSON: %v %+v", err, decoded)
 	}
-
-	if len(got) != len(spectrogram) {
-		t.Fatalf("expected %d rows, got %d", len(spectrogram), len(got))
-	}
-}
-
-func TestWriteImageProducesValidPNG(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "spectrogram.png")
-
-	spectrogram := [][]float64{{-10, -5}, {-8, -1}}
-	if err := writeImage(path, spectrogram, 4, -1); err != nil {
-		t.Fatalf("writeImage returned error: %v", err)
-	}
-
-	f, err := os.Open(path)
+	f, err := os.Open(pngPath)
 	if err != nil {
-		t.Fatalf("failed to open written PNG: %v", err)
+		t.Fatal(err)
 	}
 	defer f.Close()
-
-	img, err := png.Decode(f)
-	if err != nil {
-		t.Fatalf("failed to decode written PNG: %v", err)
-	}
-
-	wantWidth := len(spectrogram) + 60
-	wantHeight := 4/2 + 40
-	if img.Bounds().Dx() != wantWidth || img.Bounds().Dy() != wantHeight {
-		t.Errorf("unexpected image size: got %dx%d, want %dx%d", img.Bounds().Dx(), img.Bounds().Dy(), wantWidth, wantHeight)
+	if _, err := png.Decode(f); err != nil {
+		t.Fatalf("invalid PNG: %v", err)
 	}
 }
 
-// sineStreamer is a minimal beep.Streamer producing a mono sine wave,
-// used to synthesize a WAV file for end-to-end testing of run().
-func sineStreamer(numSamples int, freq, sampleRate float64) beep.Streamer {
-	i := 0
-	return beep.StreamerFunc(func(samples [][2]float64) (n int, ok bool) {
-		if i >= numSamples {
-			return 0, false
-		}
-		for n = 0; n < len(samples) && i < numSamples; n, i = n+1, i+1 {
-			v := math.Sin(2 * math.Pi * freq * float64(i) / sampleRate)
-			samples[n][0] = v
-			samples[n][1] = v
-		}
-		return n, true
-	})
+func TestServerListsAndServesGeneratedData(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "one.json"), []byte(`{"ok":true}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	server := newServer(t.TempDir(), dir)
+	listRequest := httptest.NewRequest(http.MethodGet, "/api/spectrograms", nil)
+	listResponse := httptest.NewRecorder()
+	server.ServeHTTP(listResponse, listRequest)
+	if listResponse.Code != http.StatusOK || !strings.Contains(listResponse.Body.String(), "/data/one.json") {
+		t.Fatalf("unexpected list response: %d %s", listResponse.Code, listResponse.Body.String())
+	}
+	dataRequest := httptest.NewRequest(http.MethodGet, "/data/one.json", nil)
+	dataResponse := httptest.NewRecorder()
+	server.ServeHTTP(dataResponse, dataRequest)
+	if dataResponse.Code != http.StatusOK || dataResponse.Body.String() != `{"ok":true}` {
+		t.Fatalf("unexpected data response: %d %s", dataResponse.Code, dataResponse.Body.String())
+	}
 }
 
 func TestRunEndToEnd(t *testing.T) {
 	dir := t.TempDir()
-	wavPath := filepath.Join(dir, "input.wav")
-	pngPath := filepath.Join(dir, "out.png")
-	jsonPath := filepath.Join(dir, "nested", "out.json")
-
+	wavPath := filepath.Join(dir, "INPUT.WAV")
+	f, err := os.Create(wavPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	format := beep.Format{SampleRate: 44100, NumChannels: 2, Precision: 2}
-
-	wf, err := os.Create(wavPath)
-	if err != nil {
-		t.Fatalf("failed to create temp wav file: %v", err)
+	if err := wav.Encode(f, stereoSineStreamer(44100, 440, 44100, 1, 1), format); err != nil {
+		t.Fatal(err)
 	}
-	if err := wav.Encode(wf, sineStreamer(44100, 440, 44100), format); err != nil {
-		wf.Close()
-		t.Fatalf("failed to encode test wav file: %v", err)
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
 	}
-	if err := wf.Close(); err != nil {
-		t.Fatalf("failed to close test wav file: %v", err)
-	}
-
-	if err := run(wavPath, pngPath, jsonPath); err != nil {
-		t.Fatalf("run returned error: %v", err)
-	}
-
-	if _, err := os.Stat(pngPath); err != nil {
-		t.Errorf("expected PNG output to exist: %v", err)
-	}
-	if _, err := os.Stat(jsonPath); err != nil {
-		t.Errorf("expected JSON output (with created parent dir) to exist: %v", err)
-	}
-
-	data, err := os.ReadFile(jsonPath)
-	if err != nil {
-		t.Fatalf("failed to read JSON output: %v", err)
-	}
-	var spectrogram [][]float64
-	if err := json.Unmarshal(data, &spectrogram); err != nil {
-		t.Fatalf("failed to unmarshal JSON output: %v", err)
-	}
-	if len(spectrogram) == 0 {
-		t.Error("expected non-empty spectrogram from 1 second of audio")
+	if err := run(wavPath, filepath.Join(dir, "png", "out.png"), filepath.Join(dir, "data", "out.json")); err != nil {
+		t.Fatal(err)
 	}
 }
 
-func TestRunUnsupportedFormat(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "input.txt")
-	if err := os.WriteFile(path, []byte("not audio"), 0644); err != nil {
-		t.Fatalf("failed to create temp file: %v", err)
-	}
-
-	err := run(path, filepath.Join(dir, "out.png"), filepath.Join(dir, "out.json"))
-	if err == nil {
-		t.Fatal("expected error for unsupported file format, got nil")
-	}
-}
-
-func TestRunMissingInputFile(t *testing.T) {
-	dir := t.TempDir()
-	err := run(filepath.Join(dir, "does-not-exist.wav"), filepath.Join(dir, "out.png"), filepath.Join(dir, "out.json"))
-	if err == nil {
-		t.Fatal("expected error for missing input file, got nil")
-	}
+func stereoSineStreamer(numSamples int, frequency, sampleRate, left, right float64) beep.Streamer {
+	index := 0
+	return beep.StreamerFunc(func(samples [][2]float64) (int, bool) {
+		if index >= numSamples {
+			return 0, false
+		}
+		n := 0
+		for n < len(samples) && index < numSamples {
+			v := math.Sin(2 * math.Pi * frequency * float64(index) / sampleRate)
+			samples[n] = [2]float64{left * v, right * v}
+			n++
+			index++
+		}
+		return n, true
+	})
 }

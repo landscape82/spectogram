@@ -1,155 +1,101 @@
-# Spectrogram with Interactive Plotly Viewer
+# Spectrogram viewer
 
-[![CI](https://github.com/landscape82/spectogram/actions/workflows/ci.yml/badge.svg)](https://github.com/landscape82/spectogram/actions/workflows/ci.yml)
+Generate a physically labelled spectrogram from `WAV` or `MP3` audio. The Go
+CLI streams decoded samples through a Hann-windowed FFT, writes a PNG and a
+compact, versioned JSON document, and its `serve` mode provides an interactive
+Plotly view in seconds, Hz, and dBFS.
 
-This project allows you to generate a detailed **Spectrogram** using `Go` from an audio file (compressed `MP3` or simple `WAV`), visualize it as a **color PNG**, and interact with it using an **HTML + Plotly heatmap**.
+## Requirements
 
-> ⚠️ **Project status:** this is still under active development and is **not a single interactive app**. There's no server or UI tying the pieces together — using it is a manual, two-step workflow: (1) run the Go CLI to generate the spectrogram data, then (2) run a local web server to view it in the browser. See [Usage](#-usage) below for the exact steps. A more user-friendly, integrated workflow is tracked as a future improvement.
+- Go `1.24+`
+- Docker is optional
 
-I've called this module `go-spectrogram-plotly`. Hope to improve it in the near future.
-
-## ✨ Features
-
-- 🎧 Supports `MP3` and `WAV` audio files
-- 🔊 Uses `FFT` + `Hann` window for accurate frequency representation
-- 🎨 Generates color spectrograms using a `Viridis-style` heatmap
-- 🖼️ Saves as static `PNG` and `JSON` frequency matrix
-- 📊 Interactive Plotly viewer with zoom and pan
-- 📁 Clean folder structure and command-line usability
-
-## 🔧 Requirements
-
-- `Go` version `1.20+` (CI runs the test suite on Go `1.21`, `1.22`, and `1.23`, on Ubuntu and macOS)
-- `Python3` (for local `HTML` server, build and tested with `3.9.21`)
-
-## 📦 Installation
-
-Clone the repository or unzip the downloaded archive.
+## Generate and view
 
 ```bash
-cd spectogram
-go mod tidy
+go run ./cmd/spectogram -in audio.wav \
+  -out output/spectrogram.png \
+  -json data/spectrogram.json
+
+go run ./cmd/spectogram serve
 ```
 
-This will fetch necessary Go modules (especially `beep`, `gonum`).
+Open `http://localhost:8000/web/`. The viewer loads
+`../data/spectrogram.json` by default and lists JSON documents in `data/` in
+its input. To load another document directly, use
+`http://localhost:8000/web/?file=../data/other.json`.
 
-## 🚀 Usage
+The output JSON has this stable shape:
 
-The workflow is two separate, manual steps: first generate the data with the Go CLI (Step 1 below), then serve and view it with a local Python web server (Step 2, in the next section). There is currently no single command or app that does both.
+```json
+{
+  "metadata": {
+    "schemaVersion": 1,
+    "sampleRate": 44100,
+    "fftSize": 1024,
+    "hopSize": 512,
+    "frequencyStepHz": 43.06640625,
+    "timeStepSeconds": 0.011609977324263039
+  },
+  "data": [[-100.0, -82.1]]
+}
+```
 
-### Step 1. Generate the spectrogram data
+`data[timeFrame][frequencyBin]` is a dBFS magnitude. Metadata also records
+source channel count, selected channel, duration, display range, and any
+output-frame downsampling stride.
 
-Run the spectrogram generator with:
+## Analysis options
 
 ```bash
-go run cmd/spectogram/main.go -in audio.mp3 -out spectrogram.png -json data/spectrogram.json
+go run ./cmd/spectogram -in audio.mp3 \
+  -fft-size 2048 -hop-size 512 \
+  -channel left -min-db -90 -max-db 0 \
+  -max-frames 2000
 ```
 
-- `-in` – path to your `WAV` or `MP3` file
-- `-out` – name of the `PNG` image to be generated (default `spectrogram.png`)
-- `-json` – path where the spectrogram matrix will be exported as `JSON` (default `data/spectrogram.json`)
+- `-fft-size`: power-of-two FFT length; larger values improve frequency
+  resolution while reducing time resolution.
+- `-hop-size`: samples between windows. It must be from `1` to `-fft-size`.
+- `-channel`: `mono`/`mid` (average), `left`, `right`, or `side`.
+- `-min-db` and `-max-db`: dBFS values exported and used for the PNG/Plotly
+  color range.
+- `-max-frames`: bounds JSON, image width, and matrix memory. Once reached,
+  the tool progressively averages adjacent time frames and records the result
+  in `metadata.frameStride`. Use `0` (the default) to retain every frame.
 
-This generates:
-- image `spectrogram.png`
-- output for Plotly in `data/spectrogram.json`, whose parent directory is created automatically if it doesn't exist
+The program streams audio through a single FFT-sized working window rather
+than retaining the decoded waveform. The exported matrix necessarily remains
+in memory until JSON/PNG generation, so use `-max-frames` for long recordings.
+Incomplete final windows are intentionally not padded; an exact final window
+is included.
 
-## 🌐 Step 2. View the Spectrogram (HTML + Plotly)
+`serve` accepts `-address`, `-web-dir`, and `-data-dir` if the default
+directories or port `8000` do not suit your setup. It exposes data at
+`/data/` and the generated-file list at `/api/spectrograms`.
 
-To view the spectrogram you generated in Step 1:
-
-### Run local server
-
-```bash
-python3 -m http.server
-```
-
-### Open your browser
-
-```
-http://localhost:8000/web/index.html
-or
-http://localhost:8000/web
-```
-
-You should now see an interactive, zoomable Plotly heatmap.
-
-## 🐳 Running with Docker
-
-A `Dockerfile` is included so you can run both steps without installing Go or Python locally. Build the image once:
+## Docker
 
 ```bash
 docker build -t spectogram .
-```
-
-### Step 1. Generate the spectrogram data
-
-Mount a local directory containing your audio file to `/app/data`, and generate the output into it:
-
-```bash
-docker run --rm -v "$(pwd)":/app/data spectogram generate -in /app/data/audio.mp3 -out /app/data/spectrogram.png -json /app/data/spectrogram.json
-```
-
-### Step 2. View the Spectrogram
-
-Using the same mount, so the web viewer can find `spectrogram.json`:
-
-```bash
+docker run --rm -v "$(pwd)":/app/data spectogram generate \
+  -in /app/data/audio.mp3 \
+  -out /app/data/spectrogram.png \
+  -json /app/data/spectrogram.json
 docker run --rm -p 8000:8000 -v "$(pwd)":/app/data spectogram serve
 ```
 
-Then open `http://localhost:8000/web` in your browser, same as the local workflow above.
+Then open `http://localhost:8000/web/`.
 
-## 🧠 How It Works?
-
-The `Go` script:
-- Loads the audio and converts to mono (unfortunately)
-- Splits into FFT windows (1024 samples, 50% overlap)
-- Applies Hann window
-- Computes dB scale magnitudes
-- Normalizes intensities
-- Renders heatmap with tick marks and Viridis-style gradient (tick positions are by index, not real seconds/Hz — sample rate isn't currently exported)
-- Exports as `PNG` and `JSON`
-- In this version you won't see Aphex Twin's face in "formula" track (mono analysis)
-
-The `HTML` uses `Plotly.js` to render that `JSON` into an interactive spectrogram.
-
-## 🧪 Development & Testing
-
-Continuous integration runs on every push and pull request to `main` via [GitHub Actions](.github/workflows/ci.yml). It builds the project, checks formatting, runs `go vet`, verifies `go.mod`/`go.sum` are tidy, and runs the test suite (with the race detector and coverage) across a matrix of Go versions and operating systems.
-
-To run the same checks locally before pushing:
+## Development
 
 ```bash
 go build ./cmd/...
 go vet ./...
 gofmt -l .
-go mod tidy && git diff --exit-code go.mod go.sum
 go test ./... -race -cover
 ```
 
-Unit and integration tests live alongside the code in `cmd/spectogram/main_test.go`, covering the FFT/Hann-window math, image and JSON output, and a full end-to-end run against a synthesized WAV file.
-
-## 📁 Folder Structure
-
-```
-.github/workflows/  - CI pipeline (build, vet, test, Docker image build)
-cmd/spectogram/     - main Go application and tests (main.go, main_test.go)
-web/                - HTML viewer with Plotly
-data/               - generated spectrogram.json output (created automatically, not tracked in git)
-Dockerfile          - containerized build (Go binary + Python static file server)
-docker-entrypoint.sh - dispatches `generate` and `serve` container commands
-README.md           - this file
-go.mod              - Go module info
-```
-
-## 💡 Tips & Improvements
-
-- You can increase resolution by changing `windowSize` and `step` in `main.go`
-- Edit the Plotly colorscale or layout in `web/index.html` as you like
-- In future will add support for selecting multiple `*.json` spectrograms
-- Also add support for custom gradient style (with selecting palette)
-- Will implement support for stereo spectrogram analysis!
-
-## 📄 License
-
-MIT – feel free to use, modify, and share.
+Tests cover FFT/window behavior, exact final-window handling, dBFS peak
+calibration, metadata, channel selection, bounded frame collection, output
+directories, and a WAV end-to-end run.

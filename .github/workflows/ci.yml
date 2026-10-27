@@ -100,10 +100,17 @@ jobs:
         run: go test ./... -v
 
   docker:
-    name: Docker Build
+    name: Docker Build & Serve Smoke Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
       - name: Build image
         run: docker build -t spectogram:ci .
+
+      - name: Verify serve endpoint
+        run: |
+          docker run --detach --rm --name spectogram-ci -p 8000:8000 spectogram:ci serve
+          trap 'docker stop spectogram-ci' EXIT
+          curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://localhost:8000/api/spectrograms
+          curl --fail http://localhost:8000/web/
