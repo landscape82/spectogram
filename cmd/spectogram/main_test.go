@@ -46,7 +46,7 @@ func TestConfigValidation(t *testing.T) {
 		{FFTSize: 64, HopSize: 32, Channel: "banana", MinDB: -100, MaxDB: 0},
 		{FFTSize: 64, HopSize: 32, Channel: "mono", MinDB: 0, MaxDB: 0},
 	} {
-		if err := config.validate(); err == nil {
+		if err := config.Validate(); err == nil {
 			t.Fatalf("expected invalid config: %+v", config)
 		}
 	}

@@ -18,8 +18,7 @@ import (
 	"strings"
 
 	"github.com/faiface/beep"
-	"github.com/faiface/beep/mp3"
-	"github.com/faiface/beep/wav"
+	engine "go-spectrogram-plotly/internal/spectrogram"
 	"gonum.org/v1/gonum/dsp/fourier"
 )
 
@@ -28,63 +27,19 @@ const (
 	defaultHopSize = 512
 )
 
-// Config controls the short-time Fourier transform and the exported view.
-type Config struct {
-	FFTSize   int
-	HopSize   int
-	Channel   string
-	MinDB     float64
-	MaxDB     float64
-	MaxFrames int
-}
+// Config is shared by the CLI and desktop app.
+type Config = engine.Config
 
 func defaultConfig() Config {
-	return Config{FFTSize: defaultFFTSize, HopSize: defaultHopSize, Channel: "mono", MinDB: -100, MaxDB: 0}
-}
-
-func (c Config) validate() error {
-	if c.FFTSize < 2 || c.FFTSize&(c.FFTSize-1) != 0 {
-		return errors.New("fft size must be a power of two and at least 2")
-	}
-	if c.HopSize < 1 || c.HopSize > c.FFTSize {
-		return errors.New("hop size must be between 1 and fft size")
-	}
-	if c.MinDB >= c.MaxDB {
-		return errors.New("min-db must be smaller than max-db")
-	}
-	if c.MaxFrames < 0 {
-		return errors.New("max-frames cannot be negative")
-	}
-	switch c.Channel {
-	case "mono", "left", "right", "mid", "side":
-		return nil
-	default:
-		return fmt.Errorf("unsupported channel %q (use mono, left, right, mid, or side)", c.Channel)
-	}
+	return engine.DefaultConfig()
 }
 
 // Metadata makes every data point interpretable without relying on defaults.
-type Metadata struct {
-	SchemaVersion   int     `json:"schemaVersion"`
-	SampleRate      int     `json:"sampleRate"`
-	Channels        int     `json:"channels"`
-	Channel         string  `json:"channel"`
-	FFTSize         int     `json:"fftSize"`
-	HopSize         int     `json:"hopSize"`
-	FrameStride     int     `json:"frameStride"`
-	FrequencyStepHz float64 `json:"frequencyStepHz"`
-	TimeStepSeconds float64 `json:"timeStepSeconds"`
-	MinDB           float64 `json:"minDb"`
-	MaxDB           float64 `json:"maxDb"`
-	DurationSeconds float64 `json:"durationSeconds"`
-}
+type Metadata = engine.Metadata
 
 // Spectrogram is the JSON document consumed by the viewer. Data is indexed as
 // data[timeFrame][frequencyBin], with values in dBFS.
-type Spectrogram struct {
-	Metadata Metadata    `json:"metadata"`
-	Data     [][]float64 `json:"data"`
-}
+type Spectrogram = engine.Result
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "serve" {
@@ -170,31 +125,10 @@ func run(input, output, jsonOut string) error {
 }
 
 func runWithConfig(input, output, jsonOut string, config Config) error {
-	if err := config.validate(); err != nil {
+	if err := config.Validate(); err != nil {
 		return err
 	}
-	f, err := os.Open(input)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	var streamer beep.StreamSeekCloser
-	var format beep.Format
-	switch strings.ToLower(filepath.Ext(input)) {
-	case ".mp3":
-		streamer, format, err = mp3.Decode(f)
-	case ".wav":
-		streamer, format, err = wav.Decode(f)
-	default:
-		return fmt.Errorf("unsupported file format: %s", filepath.Ext(input))
-	}
-	if err != nil {
-		return err
-	}
-	defer streamer.Close()
-
-	spectrogram, err := streamSpectrogram(streamer, int(format.SampleRate), format.NumChannels, config)
+	spectrogram, err := engine.AnalyzeFile(input, config)
 	if err != nil {
 		return err
 	}
@@ -214,7 +148,7 @@ func runWithConfig(input, output, jsonOut string, config Config) error {
 
 // streamSpectrogram performs the STFT while retaining only one working window.
 func streamSpectrogram(streamer beep.Streamer, sampleRate, channels int, config Config) (Spectrogram, error) {
-	if err := config.validate(); err != nil {
+	if err := config.Validate(); err != nil {
 		return Spectrogram{}, err
 	}
 	if sampleRate <= 0 {
