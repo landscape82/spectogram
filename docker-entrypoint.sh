@@ -7,7 +7,8 @@ case "$1" in
     exec spectogram "$@"
     ;;
   serve)
-    exec python3 -m http.server 8000
+    shift
+    exec spectogram serve "$@"
     ;;
   *)
     exec "$@"
