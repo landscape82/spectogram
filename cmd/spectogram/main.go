@@ -17,10 +17,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/faiface/beep"
-	"github.com/faiface/beep/mp3"
-	"github.com/faiface/beep/wav"
-	"gonum.org/v1/gonum/dsp/fourier"
+	engine "go-spectrogram-plotly/internal/spectrogram"
 )
 
 const (
@@ -28,63 +25,19 @@ const (
 	defaultHopSize = 512
 )
 
-// Config controls the short-time Fourier transform and the exported view.
-type Config struct {
-	FFTSize   int
-	HopSize   int
-	Channel   string
-	MinDB     float64
-	MaxDB     float64
-	MaxFrames int
-}
+// Config is shared by the CLI and desktop app.
+type Config = engine.Config
 
 func defaultConfig() Config {
-	return Config{FFTSize: defaultFFTSize, HopSize: defaultHopSize, Channel: "mono", MinDB: -100, MaxDB: 0}
-}
-
-func (c Config) validate() error {
-	if c.FFTSize < 2 || c.FFTSize&(c.FFTSize-1) != 0 {
-		return errors.New("fft size must be a power of two and at least 2")
-	}
-	if c.HopSize < 1 || c.HopSize > c.FFTSize {
-		return errors.New("hop size must be between 1 and fft size")
-	}
-	if c.MinDB >= c.MaxDB {
-		return errors.New("min-db must be smaller than max-db")
-	}
-	if c.MaxFrames < 0 {
-		return errors.New("max-frames cannot be negative")
-	}
-	switch c.Channel {
-	case "mono", "left", "right", "mid", "side":
-		return nil
-	default:
-		return fmt.Errorf("unsupported channel %q (use mono, left, right, mid, or side)", c.Channel)
-	}
+	return engine.DefaultConfig()
 }
 
 // Metadata makes every data point interpretable without relying on defaults.
-type Metadata struct {
-	SchemaVersion   int     `json:"schemaVersion"`
-	SampleRate      int     `json:"sampleRate"`
-	Channels        int     `json:"channels"`
-	Channel         string  `json:"channel"`
-	FFTSize         int     `json:"fftSize"`
-	HopSize         int     `json:"hopSize"`
-	FrameStride     int     `json:"frameStride"`
-	FrequencyStepHz float64 `json:"frequencyStepHz"`
-	TimeStepSeconds float64 `json:"timeStepSeconds"`
-	MinDB           float64 `json:"minDb"`
-	MaxDB           float64 `json:"maxDb"`
-	DurationSeconds float64 `json:"durationSeconds"`
-}
+type Metadata = engine.Metadata
 
 // Spectrogram is the JSON document consumed by the viewer. Data is indexed as
 // data[timeFrame][frequencyBin], with values in dBFS.
-type Spectrogram struct {
-	Metadata Metadata    `json:"metadata"`
-	Data     [][]float64 `json:"data"`
-}
+type Spectrogram = engine.Result
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "serve" {
@@ -170,31 +123,10 @@ func run(input, output, jsonOut string) error {
 }
 
 func runWithConfig(input, output, jsonOut string, config Config) error {
-	if err := config.validate(); err != nil {
+	if err := config.Validate(); err != nil {
 		return err
 	}
-	f, err := os.Open(input)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	var streamer beep.StreamSeekCloser
-	var format beep.Format
-	switch strings.ToLower(filepath.Ext(input)) {
-	case ".mp3":
-		streamer, format, err = mp3.Decode(f)
-	case ".wav":
-		streamer, format, err = wav.Decode(f)
-	default:
-		return fmt.Errorf("unsupported file format: %s", filepath.Ext(input))
-	}
-	if err != nil {
-		return err
-	}
-	defer streamer.Close()
-
-	spectrogram, err := streamSpectrogram(streamer, int(format.SampleRate), format.NumChannels, config)
+	spectrogram, err := engine.AnalyzeFile(input, config)
 	if err != nil {
 		return err
 	}
@@ -210,124 +142,6 @@ func runWithConfig(input, output, jsonOut string, config Config) error {
 	fmt.Println("Spectrogram saved to", output)
 	fmt.Println("JSON data saved to", jsonOut)
 	return nil
-}
-
-// streamSpectrogram performs the STFT while retaining only one working window.
-func streamSpectrogram(streamer beep.Streamer, sampleRate, channels int, config Config) (Spectrogram, error) {
-	if err := config.validate(); err != nil {
-		return Spectrogram{}, err
-	}
-	if sampleRate <= 0 {
-		return Spectrogram{}, errors.New("audio has an invalid sample rate")
-	}
-	collector := newFrameCollector(config.MaxFrames)
-	fft := fourier.NewFFT(config.FFTSize)
-	window := make([]float64, 0, config.FFTSize)
-	buffer := make([][2]float64, 4096)
-	var sampleCount int
-
-	for {
-		n, ok := streamer.Stream(buffer)
-		for i := 0; i < n; i++ {
-			window = append(window, selectChannel(buffer[i], config.Channel))
-			sampleCount++
-			if len(window) == config.FFTSize {
-				collector.add(computeFrame(window, fft, config))
-				copy(window, window[config.HopSize:])
-				window = window[:config.FFTSize-config.HopSize]
-			}
-		}
-		if !ok {
-			break
-		}
-	}
-
-	stride := collector.stride
-	return Spectrogram{
-		Metadata: Metadata{
-			SchemaVersion: 1, SampleRate: sampleRate, Channels: channels, Channel: config.Channel,
-			FFTSize: config.FFTSize, HopSize: config.HopSize, FrameStride: stride,
-			FrequencyStepHz: float64(sampleRate) / float64(config.FFTSize),
-			TimeStepSeconds: float64(config.HopSize*stride) / float64(sampleRate),
-			MinDB:           config.MinDB, MaxDB: config.MaxDB,
-			DurationSeconds: float64(sampleCount) / float64(sampleRate),
-		},
-		Data: collector.frames,
-	}, nil
-}
-
-func selectChannel(sample [2]float64, channel string) float64 {
-	switch channel {
-	case "left":
-		return sample[0]
-	case "right":
-		return sample[1]
-	case "side":
-		return (sample[0] - sample[1]) / 2
-	default: // mono and mid
-		return (sample[0] + sample[1]) / 2
-	}
-}
-
-func computeFrame(samples []float64, fft *fourier.FFT, config Config) []float64 {
-	windowed := applyHannWindow(append([]float64(nil), samples...))
-	spectrum := fft.Coefficients(nil, windowed)
-	frame := make([]float64, config.FFTSize/2)
-	// The Hann window has a coherent gain of 0.5, so a full-scale sine
-	// aligned to an FFT bin has magnitude N/4 after windowing.
-	denominator := float64(config.FFTSize) / 4
-	for i := range frame {
-		magnitude := math.Hypot(real(spectrum[i]), imag(spectrum[i])) / denominator
-		db := 20 * math.Log10(math.Max(magnitude, 1e-12))
-		frame[i] = clamp(db, config.MinDB, config.MaxDB)
-	}
-	return frame
-}
-
-// frameCollector bounds output width by repeatedly averaging adjacent frames.
-// The source stream is still processed continuously, so decoded audio is never
-// accumulated in memory.
-type frameCollector struct {
-	maxFrames int
-	frames    [][]float64
-	stride    int
-	seen      int
-}
-
-func newFrameCollector(maxFrames int) *frameCollector {
-	return &frameCollector{maxFrames: maxFrames, stride: 1}
-}
-
-func (c *frameCollector) add(frame []float64) {
-	if c.maxFrames == 0 {
-		c.frames = append(c.frames, frame)
-		c.seen++
-		return
-	}
-	if len(c.frames) >= c.maxFrames {
-		c.frames = averagePairs(c.frames)
-		c.stride *= 2
-	}
-	if c.seen%c.stride == 0 {
-		c.frames = append(c.frames, frame)
-	}
-	c.seen++
-}
-
-func averagePairs(frames [][]float64) [][]float64 {
-	result := make([][]float64, 0, (len(frames)+1)/2)
-	for i := 0; i < len(frames); i += 2 {
-		if i+1 == len(frames) {
-			result = append(result, frames[i])
-			continue
-		}
-		row := make([]float64, len(frames[i]))
-		for j := range row {
-			row[j] = (frames[i][j] + frames[i+1][j]) / 2
-		}
-		result = append(result, row)
-	}
-	return result
 }
 
 func writeJSON(path string, spectrogram Spectrogram) error {
