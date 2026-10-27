@@ -1,0 +1,95 @@
+# Default values for the spectogram chart.
+# This chart deploys the "serve" side of the app (the static Plotly web
+# viewer + generated data) as a Deployment + Service, with an optional
+# Ingress and an optional one-off Job to run the "generate" step.
+#
+# Designed to work unmodified against a local `kind` cluster, and to be
+# adapted for cloud/on-prem clusters purely via values overrides (image
+# registry, service type, ingress, storage class) — no template changes
+# should be needed.
+
+replicaCount: 1
+
+image:
+  # For kind: build the image locally and `kind load docker-image
+  # spectogram:local --name <cluster>`, then set repository/tag to match.
+  # For cloud/on-prem: point at your registry, e.g.
+  # ghcr.io/landscape82/spectogram, and set imagePullSecrets below.
+  repository: spectogram
+  tag: local
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: false
+  name: ""
+
+podAnnotations: {}
+
+securityContext: {}
+
+service:
+  # ClusterIP works everywhere and is the safest default; combine with
+  # ingress.enabled for cloud/on-prem, or use `kubectl port-forward` /
+  # NodePort for bare kind clusters. Set to LoadBalancer on cloud
+  # providers that support it, or NodePort for on-prem without an LB.
+  type: ClusterIP
+  port: 8000
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: spectogram.local
+  path: /
+  pathType: Prefix
+  tls: []
+  # - secretName: spectogram-tls
+  #   hosts:
+  #     - spectogram.local
+
+persistence:
+  # Backs /app/data, which holds the generated spectrogram.png/json the
+  # web viewer serves. Leave storageClassName empty to use the cluster's
+  # default StorageClass — this is what kind's local-path provisioner
+  # registers as default, and what most cloud/on-prem clusters also
+  # provide, so the chart needs no changes to move between them.
+  enabled: true
+  existingClaim: ""
+  storageClassName: ""
+  accessMode: ReadWriteOnce
+  size: 1Gi
+
+# Optional one-off Job that runs `spectogram generate` against an audio
+# file before the Deployment serves it. Disabled by default since it
+# requires supplying the input audio via a ConfigMap/Secret binary key.
+# Runs as a Helm post-install/post-upgrade hook so it completes before
+# `helm test` (and typical users) hit the Service.
+generateJob:
+  enabled: false
+  audioConfigMap: ""
+  audioKey: audio.mp3
+  # Must match audioKey above — the ConfigMap is mounted as a volume at
+  # /app/audio-input, so the file appears at /app/audio-input/<audioKey>.
+  inputPath: /app/audio-input/audio.mp3
+  outputPng: /app/data/spectrogram.png
+  outputJSON: /app/data/spectrogram.json
+
+resources: {}
+  # requests:
+  #   cpu: 50m
+  #   memory: 64Mi
+  # limits:
+  #   cpu: 250m
+  #   memory: 256Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 80
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

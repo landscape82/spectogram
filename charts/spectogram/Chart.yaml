@@ -1,0 +1,11 @@
+apiVersion: v2
+name: spectogram
+description: Helm chart for the Spectogram viewer (Go generator + Plotly web viewer)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/landscape82/spectogram
+sources:
+  - https://github.com/landscape82/spectogram
+maintainers:
+  - name: landscape82

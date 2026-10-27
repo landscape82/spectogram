@@ -1,0 +1,26 @@
+Spectogram has been deployed as {{ include "spectogram.fullname" . }} in namespace {{ .Release.Namespace }}.
+
+{{- if .Values.ingress.enabled }}
+Ingress is enabled — once DNS/hosts resolve {{ .Values.ingress.host }}, visit:
+  http://{{ .Values.ingress.host }}{{ .Values.ingress.path }}web
+{{- else if contains "NodePort" .Values.service.type }}
+Get the NodePort and visit the app:
+  export NODE_PORT=$(kubectl get -n {{ .Release.Namespace }} svc {{ include "spectogram.fullname" . }} -o jsonpath="{.spec.ports[0].nodePort}")
+  export NODE_IP=$(kubectl get nodes -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo "http://$NODE_IP:$NODE_PORT/web"
+{{- else if contains "LoadBalancer" .Values.service.type }}
+Get the LoadBalancer IP (may take a few minutes to be assigned):
+  kubectl get -n {{ .Release.Namespace }} svc -w {{ include "spectogram.fullname" . }}
+{{- else }}
+Service is ClusterIP — port-forward to reach it locally (works on kind and any cluster):
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "spectogram.fullname" . }} 8000:{{ .Values.service.port }}
+Then open http://localhost:8000/web
+{{- end }}
+
+{{- if not .Values.generateJob.enabled }}
+
+No spectrogram data has been generated yet. Either:
+  - enable generateJob in values (see charts/spectogram/README.md), or
+  - `kubectl cp` an audio file into the pod and run `spectogram generate` manually, or
+  - `kubectl cp` a pre-generated spectrogram.png/data/spectrogram.json onto the persistent volume.
+{{- end }}

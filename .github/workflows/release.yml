@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Publish Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.24"
+          cache: true
+
+      - name: Build binaries
+        run: |
+          set -eu
+          mkdir -p dist
+          for os in linux darwin; do
+            for arch in amd64 arm64; do
+              out="dist/spectogram-${os}-${arch}"
+              GOOS="$os" GOARCH="$arch" go build -o "$out" ./cmd/spectogram
+            done
+          done
+
+      - name: Generate changelog
+        run: |
+          set -eu
+          prev_tag=$(git tag --sort=-creatordate | grep -A1 "^${GITHUB_REF_NAME}$" | tail -n1)
+          if [ "$prev_tag" = "$GITHUB_REF_NAME" ] || [ -z "$prev_tag" ]; then
+            range="$GITHUB_REF_NAME"
+          else
+            range="${prev_tag}..${GITHUB_REF_NAME}"
+          fi
+          {
+            echo "## Changes"
+            echo
+            git log "$range" --pretty=format:'- %s (%h)'
+          } > release-notes.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file release-notes.md

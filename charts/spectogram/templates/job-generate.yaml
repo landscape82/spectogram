@@ -1,0 +1,49 @@
+{{- if .Values.generateJob.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "spectogram.fullname" . }}-generate
+  labels:
+    {{- include "spectogram.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        {{- include "spectogram.selectorLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: generate
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - generate
+            - -in
+            - {{ .Values.generateJob.inputPath | quote }}
+            - -out
+            - {{ .Values.generateJob.outputPng | quote }}
+            - -json
+            - {{ .Values.generateJob.outputJSON | quote }}
+          volumeMounts:
+            - name: audio
+              mountPath: /app/audio-input
+              readOnly: true
+            {{- if .Values.persistence.enabled }}
+            - name: data
+              mountPath: /app/data
+            {{- end }}
+      volumes:
+        - name: audio
+          configMap:
+            name: {{ .Values.generateJob.audioConfigMap }}
+        {{- if .Values.persistence.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "spectogram.pvcName" . }}
+        {{- end }}
+{{- end }}
