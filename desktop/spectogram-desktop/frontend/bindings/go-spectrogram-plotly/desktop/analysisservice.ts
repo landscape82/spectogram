@@ -35,3 +35,10 @@ export function DefaultConfig(): $CancellablePromise<spectrogram$0.Config> {
 export function SaveJSON(path: string, result: spectrogram$0.Result): $CancellablePromise<void> {
     return $Call.ByID(3589505052, path, result);
 }
+
+/**
+ * SavePNG exports a compact Viridis-like image of the analyzed result.
+ */
+export function SavePNG(path: string, result: spectrogram$0.Result): $CancellablePromise<void> {
+    return $Call.ByID(1072439901, path, result);
+}
