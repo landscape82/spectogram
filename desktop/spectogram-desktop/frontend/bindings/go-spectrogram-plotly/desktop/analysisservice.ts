@@ -27,3 +27,11 @@ export function Analyze(path: string, config: spectrogram$0.Config): $Cancellabl
 export function DefaultConfig(): $CancellablePromise<spectrogram$0.Config> {
     return $Call.ByID(1071058158);
 }
+
+/**
+ * SaveJSON exports an analysis result without requiring the desktop UI to
+ * handle filesystem access directly.
+ */
+export function SaveJSON(path: string, result: spectrogram$0.Result): $CancellablePromise<void> {
+    return $Call.ByID(3589505052, path, result);
+}
