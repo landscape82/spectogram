@@ -1,106 +1,17 @@
 <script lang="ts">
-  import {onMount} from 'svelte';
-  import {Events, WML} from "@wailsio/runtime";
-  import {GreetService} from "../bindings/go-spectrogram-plotly/desktop";
+  import { onMount } from 'svelte';
+  import { Analyze, DefaultConfig } from '../bindings/go-spectrogram-plotly/desktop/analysisservice';
+  import type { Config, Result } from '../bindings/go-spectrogram-plotly/internal/spectrogram/models';
 
-  const wailsVersion = "v3.0.0";
-
-  let name: string = $state('');
-  let time: string = $state('Listening for Time event...');
-
-  let titleNameEl: HTMLElement;
-  let toastEl: HTMLElement;
-  let resultEl: HTMLElement;
-  let toastTimer: ReturnType<typeof setTimeout>;
-
-  onMount(() => {
-    Events.On('time', (v: any) => {
-      // On a narrow screen the full RFC1123 stamp is too wide for the footer, so
-      // show just the clock time there (matching the CSS breakpoint).
-      const full = v.data;
-      const compact = (full.match(/\d{1,2}:\d{2}:\d{2}/) || [full])[0];
-      time = window.matchMedia('(max-width: 640px)').matches ? compact : full;
-    });
-    // Wire up data-wml-openURL links (logos + footer "Docs" link).
-    WML.Reload();
-  });
-
-  // Crossfade the framework word in the heading ("Wails + Svelte") to the name
-  // the user entered ("Wails + <name>"): the old word fades out while the new one
-  // fades in over the same spot.
-  function swapTitleName(name: string): void {
-    const current = titleNameEl.querySelector('.title-name-text:not(.is-outgoing)');
-    if (!current || current.textContent === name) {
-      return;
-    }
-    const incoming = document.createElement('span');
-    incoming.className = 'title-name-text is-entering';
-    incoming.textContent = name;
-    current.classList.add('is-outgoing');
-    titleNameEl.appendChild(incoming);
-    // Force a reflow so the transitions run from the starting state.
-    void incoming.offsetWidth;
-    incoming.classList.remove('is-entering');
-    current.classList.add('is-leaving');
-    current.addEventListener('transitionend', () => current.remove(), {once: true});
-  }
-
-  // Pop the toast with the message Go returned, then auto-dismiss it.
-  function showToast(message: string): void {
-    resultEl.innerText = message;
-    toastEl.classList.add('is-visible');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toastEl.classList.remove('is-visible'), 4000);
-  }
-
-  const doGreet = (): void => {
-    let n = name || 'anonymous';
-    swapTitleName(n);
-    GreetService.Greet(n).then(showToast).catch(console.error);
-  }
+  let config: Config = $state({ FFTSize: 1024, HopSize: 512, Channel: 'mono', MinDB: -100, MaxDB: 0, MaxFrames: 2000 });
+  let path = $state(''); let result: Result | null = $state(null); let error = $state(''); let busy = $state(false); let canvas: HTMLCanvasElement | undefined = $state();
+  onMount(async () => { config = await DefaultConfig(); config.MaxFrames = 2000; });
+  async function analyze() { if (!path.trim()) { error = 'Enter a WAV or MP3 path.'; return; }; busy = true; error = ''; result = null; try { result = await Analyze(path.trim(), config); requestAnimationFrame(draw); } catch (e) { error = e instanceof Error ? e.message : String(e); } finally { busy = false; } }
+  function draw() { if (!result?.data?.length || !canvas) return; const rows = result.data as number[][], bins = rows[0].length, w = Math.min(1200, Math.max(400, rows.length)), h = Math.min(700, Math.max(240, bins)), ctx = canvas.getContext('2d'); if (!ctx) return; canvas.width=w; canvas.height=h; const img=ctx.createImageData(w,h); for(let x=0;x<w;x++)for(let y=0;y<h;y++){const v=rows[Math.floor(x*rows.length/w)][Math.floor((h-1-y)*bins/h)], t=Math.max(0,Math.min(1,(v-result.metadata.minDb)/(result.metadata.maxDb-result.metadata.minDb))), p=(y*w+x)*4; img.data[p]=68+185*t; img.data[p+1]=1+230*t; img.data[p+2]=84-47*t; img.data[p+3]=255}; ctx.putImageData(img,0,0); }
 </script>
 
-<main class="container">
-  <header class="brand">
-    <span class="brand-mark" data-wml-openURL="https://v3.wails.io">
-      <img src="/wails.png" class="brand-logo" alt="Wails logo"/>
-    </span>
-    <span class="brand-badge" data-wml-openURL="https://svelte.dev">
-      <img src="/svelte.svg" alt="Svelte logo"/>
-    </span>
-  </header>
-
-  <h1 class="title"><span class="title-accent">Wails +</span> <span class="title-name" bind:this={titleNameEl}><span class="title-name-text">Svelte</span></span></h1>
-  <p class="subtitle">Build beautiful cross-platform apps with Go and Svelte.</p>
-
-  <div class="greet">
-    <div class="input-box">
-      <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-      <input aria-label="input" class="input" bind:value={name} type="text" placeholder="Your name" autocomplete="off"/>
-      <button aria-label="greet-btn" class="btn" onclick={doGreet}>Greet
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
-      </button>
-    </div>
-  </div>
-</main>
-
-<hr class="footer-divider"/>
-<footer class="footer">
-  <span class="footer-version">{wailsVersion}</span>
-  <span class="footer-time">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-    <span>{time}</span>
-  </span>
-  <a class="footer-docs" data-wml-openURL="https://v3.wails.io" aria-label="Wails documentation">Docs
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg>
-  </a>
-</footer>
-
-<div class="toast" bind:this={toastEl} role="status" aria-live="polite">
-  <span class="toast-label">From Go</span>
-  <span aria-label="result" class="toast-msg" bind:this={resultEl}></span>
-</div>
+<main><header><div><small>LOCAL AUDIO ANALYSIS</small><h1>Spectogram</h1></div><span>{busy ? 'Analyzing…' : 'Ready'}</span></header><div class="workspace"><aside><h2>Open audio</h2><label>Audio file<input bind:value={path} placeholder="/Users/you/Music/track.wav" onkeydown={(e)=>e.key==='Enter'&&analyze()} /></label><p>WAV and MP3 are processed locally.</p><h2>Analysis</h2><label>FFT<select bind:value={config.FFTSize}><option value={512}>512</option><option value={1024}>1024</option><option value={2048}>2048</option></select></label><label>Hop<select bind:value={config.HopSize}><option value={256}>256</option><option value={512}>512</option></select></label><label>Channel<select bind:value={config.Channel}><option value="mono">Mono</option><option value="left">Left</option><option value="right">Right</option><option value="side">Side</option></select></label><label>Max frames<input type="number" min="0" bind:value={config.MaxFrames}/></label><button onclick={analyze} disabled={busy}>{busy?'Analyzing…':'Analyze audio'}</button>{#if error}<strong>{error}</strong>{/if}</aside><section class="viewer">{#if result}<div class="meta">{result.metadata.sampleRate} Hz · {result.metadata.durationSeconds.toFixed(2)} seconds · FFT {result.metadata.fftSize} · {result.data?.length ?? 0} frames</div><canvas bind:this={canvas}></canvas>{:else}<div class="empty"><b>∿</b><h2>Choose an audio file</h2><p>Configure the analysis, then generate a local spectrogram.</p></div>{/if}</section></div></main>
 
 <style>
-  /* Put your standard CSS here */
+  :global(*){box-sizing:border-box}:global(body){margin:0;background:#0b1020;color:#e7edf7;font-family:system-ui,sans-serif}main{min-height:100vh;background:radial-gradient(circle at 80% 0,#1d2857,transparent 34%),#0b1020}header{height:88px;padding:18px 32px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #283252}small{color:#8ba6ff;font-weight:700;letter-spacing:1.4px}h1,h2,p{margin:0}h1{font-size:25px}.workspace{display:grid;grid-template-columns:310px 1fr;min-height:calc(100vh - 88px)}aside{padding:28px;background:#0e1427;border-right:1px solid #283252}h2{font-size:15px;margin:0 0 14px}label{display:block;color:#aeb9d2;font-size:12px;margin:14px 0}input,select{width:100%;margin-top:6px;padding:10px;color:#e7edf7;background:#141d36;border:1px solid #344266;border-radius:6px}button{width:100%;margin-top:14px;padding:12px;border:0;border-radius:6px;background:#7795ff;color:#08102b;font-weight:750}p,strong{display:block;margin-top:10px;color:#8290b2;font-size:12px;line-height:1.45}strong{color:#ff9da5}.viewer{padding:32px;overflow:auto}.meta{margin-bottom:16px;color:#bdc9e6;font-size:12px}canvas{width:100%;max-height:72vh;object-fit:fill;border:1px solid #344266;background:#060a16}.empty{height:calc(100vh - 190px);display:grid;place-content:center;text-align:center;color:#9ba8c7}.empty b{font-size:72px;color:#7795ff}@media(max-width:780px){.workspace{grid-template-columns:1fr}aside{border-right:0;border-bottom:1px solid #283252}}
 </style>
